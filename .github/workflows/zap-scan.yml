@@ -1,4 +1,4 @@
-name: "OWASP ZAP Scan (Final Fixed)"
+name: "OWASP ZAP Scan (Stable for Push & Manual)"
 
 on:
   workflow_dispatch:
@@ -10,11 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Clone repository manual
+      # 1️⃣ Clone repository manual (tanpa actions/checkout)
       - name: Checkout repository
         run: git clone https://github.com/${{ github.repository }} ./
 
-      # 2️⃣ Setup environment (tanpa install docker!)
+      # 2️⃣ Setup Node.js dan environment (tanpa install docker)
       - name: Setup environment
         run: |
           sudo apt-get update -y
@@ -24,26 +24,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # 4️⃣ Jalankan app Next.js
+      # 4️⃣ Jalankan app Next.js di background
       - name: Start app
         run: npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_fakekey"
           CLERK_SECRET_KEY: "sk_test_fakekey"
 
-      # 5️⃣ Tunggu server siap
-      - name: Wait until app is reachable
+      # 5️⃣ Tunggu server benar-benar hidup
+      - name: Wait until app is reachable (robust)
         run: |
-          for i in {1..40}; do
-            if curl -s http://localhost:3000 > /dev/null; then
-              echo "✅ App is running!"
+          echo "🚀 Checking if server starts..."
+          for i in {1..60}; do
+            STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:3000 || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ App is up (HTTP 200)!"
               break
+            else
+              echo "⏳ ($i) Server not ready yet (status: $STATUS)"
+              ps aux | grep "next" || true
+              sleep 5
             fi
-            echo "⏳ Waiting ($i)..."
-            sleep 5
           done
 
-      # 6️⃣ Jalankan OWASP ZAP scan
+      # 6️⃣ Tambah jeda ekstra biar stabil
+      - name: Extra wait before ZAP
+        run: |
+          echo "🕒 Giving app extra time to stabilize..."
+          sleep 20
+
+      # 7️⃣ Jalankan OWASP ZAP scan dan simpan hasil di workspace
       - name: Run ZAP baseline scan
         run: |
           echo "⚡ Running OWASP ZAP Baseline Scan..."
@@ -57,11 +67,13 @@ jobs:
               -J /zap/wrk/zap_report.json \
               -w /zap/wrk/zap_warnings.md || true
 
-      # 7️⃣ Debug hasil
+      # 8️⃣ Debug: tampilkan file hasil
       - name: List generated reports
-        run: ls -lah ${{ github.workspace }}
+        run: |
+          echo "📄 Files generated in workspace:"
+          ls -lah ${{ github.workspace }}
 
-      # 8️⃣ Upload hasil laporan
+      # 9️⃣ Upload hasil laporan sebagai artifact
       - name: Upload ZAP report artifacts
         uses: actions/upload-artifact@v4
         with:
