@@ -10,11 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Ambil kode dari repo
+      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node.js environment
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -24,43 +24,43 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # 4️⃣ Jalankan dev server (Next.js default di port 3000)
+      # 4️⃣ Start app
       - name: Start Next.js app
         run: npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
-      # 5️⃣ Tunggu sampai server benar-benar hidup
-      - name: Wait for server to start
+      # 5️⃣ Wait for server
+      - name: Wait for server
         run: |
           for i in {1..30}; do
             if curl -s http://localhost:3000 > /dev/null; then
               echo "✅ App is up!"
               break
             fi
-            echo "⏳ Waiting for server..."
+            echo "⏳ Waiting..."
             sleep 5
           done
 
-      # 6️⃣ Jalankan ZAP scan dan simpan hasil ke folder ./zap
+      # 6️⃣ Jalankan ZAP baseline scan dalam container dan salin hasilnya
       - name: Run OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.10.0
-        with:
-          target: 'http://localhost:3000'
-          fail_action: false
-          cmd_options: '-a -r zap_report.html -J zap_report.json'
-          workdir: './zap'
+        run: |
+          docker run -v $(pwd):/zap/wrk/:rw --network=host ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t http://localhost:3000 \
+            -r zap_report.html \
+            -J zap_report.json \
+            -a
 
-      # 7️⃣ Tampilkan isi folder buat verifikasi (opsional, bisa dihapus nanti)
-      - name: List files for debugging
-        run: ls -R
+      # 7️⃣ Pastikan file hasil ada
+      - name: List files
+        run: ls -l
 
-      # 8️⃣ Upload hasil laporan (artifact)
+      # 8️⃣ Upload hasil laporan
       - name: Upload ZAP Reports
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
           path: |
-            zap/zap_report.html
-            zap/zap_report.json
+            zap_report.html
+            zap_report.json
