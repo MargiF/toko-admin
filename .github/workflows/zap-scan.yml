@@ -1,4 +1,4 @@
-name: "OWASP ZAP Scan (Manual Run)"
+name: "OWASP ZAP Scan (Manual + Fallback)"
 
 on:
   workflow_dispatch:
@@ -8,27 +8,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
+      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: npm install
 
+      # 4️⃣ Jalankan server Next.js di background
       - name: Start Next.js dev server
         run: npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
+      # 5️⃣ Tunggu server sampai benar-benar siap
       - name: Wait for server
         run: |
-          echo "Waiting for localhost:3000..."
-          for i in {1..30}; do
+          echo "Waiting for http://localhost:3000..."
+          for i in {1..40}; do
             if curl -s http://localhost:3000 > /dev/null; then
               echo "✅ Server is running!"
               break
@@ -37,9 +42,11 @@ jobs:
             sleep 5
           done
 
+      # 6️⃣ Jalankan ZAP Baseline Scan dengan fallback jika gagal
       - name: Run ZAP Baseline Scan
         run: |
           mkdir -p artifacts
+          echo "⚡ Running ZAP Baseline Scan..."
           docker run --network="host" \
             -v $(pwd)/artifacts:/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
@@ -49,7 +56,22 @@ jobs:
               -w zap_warnings.md \
               -a || true
 
-      - name: Upload ZAP report
+          # 🔁 Fallback: pastikan ada file output meski gagal scan
+          if [ ! -f artifacts/zap_report.html ]; then
+            echo "<h1>ZAP scan failed to reach target</h1>" > artifacts/zap_report.html
+            echo "{}" > artifacts/zap_report.json
+            echo "No warnings generated." > artifacts/zap_warnings.md
+            echo "⚠️ No scan results found — fallback reports created."
+          fi
+
+      # 7️⃣ Debug hasil (opsional)
+      - name: List generated reports
+        run: |
+          echo "📄 Files generated in artifacts/:"
+          ls -lah artifacts/
+
+      # 8️⃣ Upload hasil laporan ke artifact
+      - name: Upload ZAP Reports
         uses: actions/upload-artifact@v4
         with:
           name: zap-scan-artifacts
