@@ -10,50 +10,63 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout source code
-      - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node.js
       - name: Setup Node.js
-        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
+        uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # 3️⃣ Install dependencies
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      # 4️⃣ Jalankan server (Next.js default port 3000)
-      - name: Start app (dev mode)
-        run: npm run dev &
+      - name: Start Next.js (dev mode) in background
+        run: |
+          npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
-      # 5️⃣ Tunggu sampai server siap
-      - name: Wait for app
+      - name: Wait until localhost:3000 is reachable
         run: |
-          for i in {1..30}; do
-            if curl -s http://localhost:3000 > /dev/null; then
-              echo "✅ App is up!"
+          for i in {1..40}; do
+            if curl -sS --head http://localhost:3000 | grep "200\|302\|301" >/dev/null 2>&1; then
+              echo "App is up"
               break
             fi
-            echo "⏳ Waiting..."
-            sleep 5
+            echo "Waiting for app... ($i)"
+            sleep 3
           done
 
-      # 6️⃣ Jalankan ZAP Baseline Scan
-      - name: Run ZAP Baseline Scan
-        uses: zaproxy/action-baseline@b6a9e624353d0d17534337ecbc8143a2a84e1d26
-        with:
-          target: 'http://localhost:3000'
-          fail_action: false
-          cmd_options: '-a -r zap_report.html -J zap_report.json -w zap_warnings.md'
+      - name: Show quick diagnostics (processes, ports)
+        run: |
+          echo "=== ps aux ==="
+          ps aux | sed -n '1,200p'
+          echo "=== netstat (if available) ==="
+          if command -v ss >/dev/null 2>&1; then ss -tuln; else netstat -tuln || true; fi
 
-      # 7️⃣ Upload hasil scan (artifact)
-      - name: Upload ZAP report
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+      - name: Run ZAP Baseline (docker) and write outputs INTO workspace
+        run: |
+          echo "Running ZAP (docker)..."
+          docker run --rm --network host \
+            -v "${{ github.workspace }}":/zap/wrk/:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t http://localhost:3000 \
+              -r /zap/wrk/zap_report.html \
+              -J /zap/wrk/zap_report.json \
+              -w /zap/wrk/zap_warnings.md || true
+
+      - name: List workspace after ZAP run (debug)
+        run: |
+          echo "=== workspace listing ==="
+          ls -la "${{ github.workspace }}" || true
+          echo "=== zap files only ==="
+          ls -la "${{ github.workspace }}/zap_report.*" || true
+
+      - name: Upload ZAP reports (artifact)
+        uses: actions/upload-artifact@v4
         with:
           name: zap-report
           path: |
