@@ -1,41 +1,33 @@
-name: "OWASP ZAP Scan"
+name: "OWASP ZAP Scan (final stdout version)"
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
 
 jobs:
   zap_scan:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository
       - name: Checkout repository
         run: git clone https://github.com/${{ github.repository }} ./
 
-      # 2️⃣ Setup Node.js manually (tanpa uses:)
       - name: Setup Node.js manually
         run: |
           sudo apt-get update -y
           sudo apt-get install -y nodejs npm curl
 
-      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: npm ci
 
-      # 4️⃣ Jalankan app Next.js (port 3000)
       - name: Start app (dev mode)
-        run: |
-          npm run dev &
+        run: npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
-      # 5️⃣ Tunggu sampai app siap diakses
       - name: Wait until app is reachable
         run: |
-          for i in {1..30}; do
+          for i in {1..40}; do
             if curl -s http://localhost:3000 > /dev/null; then
               echo "✅ App is up!"
               break
@@ -44,38 +36,22 @@ jobs:
             sleep 5
           done
 
-      # 6️⃣ Jalankan ZAP Scan — hasil langsung disimpan ke file workspace
-      - name: Run OWASP ZAP Baseline Scan
+      # ⚡ Jalankan ZAP dan redirect seluruh hasilnya ke file lokal
+      - name: Run ZAP baseline and capture output
         run: |
-          echo "⚡ Running OWASP ZAP scan on http://localhost:3000"
-          docker run --rm --network="host" \
-            -v "${{ github.workspace }}":/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
-              -t http://localhost:3000 \
-              -a \
-              -r /zap/wrk/zap_report.html \
-              -J /zap/wrk/zap_report.json \
-              -w /zap/wrk/zap_warnings.md || true
+          echo "⚡ Running ZAP baseline scan..."
+          docker run --rm --network="host" ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:3000 -a > zap_output.txt 2>&1 || true
 
-      # 7️⃣ Debug — pastikan file hasilnya muncul
-      - name: List workspace after ZAP run
+      - name: Verify output file
         run: |
-          echo "=== Files after scan ==="
-          ls -lah "${{ github.workspace }}" || true
+          echo "=== Check output ==="
+          ls -lah
+          echo "=== Preview ==="
+          head -n 40 zap_output.txt || true
 
-      # 8️⃣ Upload hasil laporan ke artifact
-      - name: Upload ZAP reports
-        run: |
-          echo "Uploading ZAP artifacts..."
-          mkdir -p artifacts
-          cp zap_report.html artifacts/ || true
-          cp zap_report.json artifacts/ || true
-          cp zap_warnings.md artifacts/ || true
-        shell: bash
-
-      - name: Upload artifacts to Actions
+      - name: Upload ZAP output artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zap-report
-          path: artifacts/
+          name: zap-output
+          path: zap_output.txt
