@@ -1,9 +1,7 @@
-name: "OWASP ZAP Scan"
+name: "OWASP ZAP Scan (stdout fallback)"
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
 
 jobs:
   zap_scan:
@@ -11,65 +9,48 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        run: git clone https://github.com/${{ github.repository }} ./
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
+      - name: Setup Node.js manually
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y nodejs npm curl
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Start Next.js (dev mode) in background
+      - name: Start app (dev mode)
         run: |
           npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
-      - name: Wait until localhost:3000 is reachable
+      - name: Wait until app is reachable
         run: |
-          for i in {1..40}; do
-            if curl -sS --head http://localhost:3000 | grep "200\|302\|301" >/dev/null 2>&1; then
-              echo "App is up"
+          for i in {1..30}; do
+            if curl -s http://localhost:3000 > /dev/null; then
+              echo "✅ App is up!"
               break
             fi
-            echo "Waiting for app... ($i)"
-            sleep 3
+            echo "Waiting..."
+            sleep 5
           done
 
-      - name: Show quick diagnostics (processes, ports)
+      - name: Run ZAP and redirect output to file
         run: |
-          echo "=== ps aux ==="
-          ps aux | sed -n '1,200p'
-          echo "=== netstat (if available) ==="
-          if command -v ss >/dev/null 2>&1; then ss -tuln; else netstat -tuln || true; fi
+          echo "⚡ Running ZAP baseline scan..."
+          docker run --rm --network="host" ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:3000 -a -J - -r - -w - > zap_output.txt || true
 
-      - name: Run ZAP Baseline (docker) and write outputs INTO workspace
+      - name: Verify output file exists
         run: |
-          echo "Running ZAP (docker)..."
-          docker run --rm --network host \
-            -v "${{ github.workspace }}":/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
-              -t http://localhost:3000 \
-              -r /zap/wrk/zap_report.html \
-              -J /zap/wrk/zap_report.json \
-              -w /zap/wrk/zap_warnings.md || true
+          echo "Listing files..."
+          ls -lah
+          head -n 20 zap_output.txt || true
 
-      - name: List workspace after ZAP run (debug)
-        run: |
-          echo "=== workspace listing ==="
-          ls -la "${{ github.workspace }}" || true
-          echo "=== zap files only ==="
-          ls -la "${{ github.workspace }}/zap_report.*" || true
-
-      - name: Upload ZAP reports (artifact)
+      - name: Upload ZAP scan output
         uses: actions/upload-artifact@v4
         with:
-          name: zap-report
-          path: |
-            zap_report.html
-            zap_report.json
-            zap_warnings.md
+          name: zap-output
+          path: zap_output.txt
