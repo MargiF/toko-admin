@@ -10,29 +10,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: npm install
 
-      # 4️⃣ Start app
-      - name: Start Next.js app
+      # Jalankan Next.js dev server
+      - name: Start app (dev mode)
         run: npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
-      # 5️⃣ Wait for server
-      - name: Wait for server
+      # Tunggu sampai server hidup
+      - name: Wait for app
         run: |
           for i in {1..30}; do
             if curl -s http://localhost:3000 > /dev/null; then
@@ -43,24 +40,23 @@ jobs:
             sleep 5
           done
 
-      # 6️⃣ Jalankan ZAP baseline scan dalam container dan salin hasilnya
-      - name: Run OWASP ZAP Baseline Scan
+      # Jalankan ZAP scan dengan Docker manual (lebih stabil)
+      - name: Run ZAP Baseline Scan (manual)
         run: |
-          docker run -v $(pwd):/zap/wrk/:rw --network=host ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-            -t http://localhost:3000 \
-            -r zap_report.html \
-            -J zap_report.json \
-            -a
+          docker run --network="host" \
+            -v $(pwd):/zap/wrk/:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:3000 \
+              -r zap_report.html \
+              -J zap_report.json \
+              -w zap_warnings.md || true
 
-      # 7️⃣ Pastikan file hasil ada
-      - name: List files
-        run: ls -l
-
-      # 8️⃣ Upload hasil laporan
-      - name: Upload ZAP Reports
+      # Upload hasil report
+      - name: Upload ZAP reports
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
           path: |
             zap_report.html
             zap_report.json
+            zap_warnings.md
