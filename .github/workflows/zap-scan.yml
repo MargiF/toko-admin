@@ -21,14 +21,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # Jalankan Next.js dev server
       - name: Start app (dev mode)
         run: npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
-      # Tunggu sampai server hidup
       - name: Wait for app
         run: |
           for i in {1..30}; do
@@ -40,19 +38,19 @@ jobs:
             sleep 5
           done
 
-      # Jalankan ZAP scan dengan Docker manual (lebih stabil)
-      - name: Run ZAP Baseline Scan (manual)
+      # 🔹 Run ZAP with correct output path
+      - name: Run ZAP Baseline Scan
         run: |
           docker run --network="host" \
             -v $(pwd):/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t http://localhost:3000 \
-              -r zap_report.html \
-              -J zap_report.json \
-              -w zap_warnings.md || true
+            zap-baseline.py \
+              -t http://localhost:3000 \
+              -r /zap/wrk/zap_report.html \
+              -J /zap/wrk/zap_report.json \
+              -w /zap/wrk/zap_warnings.md || true
 
-      # Upload hasil report
-      - name: Upload ZAP reports
+      - name: Upload ZAP report
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
