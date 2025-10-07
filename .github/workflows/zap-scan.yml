@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # 4️⃣ Jalankan server (misalnya Next.js, port 3000)
+      # 4️⃣ Jalankan server (Next.js default port 3000)
       - name: Start app (dev mode)
         run: npm run dev &
         env:
@@ -43,9 +43,9 @@ jobs:
             sleep 5
           done
 
-      # 6️⃣ Jalankan OWASP ZAP baseline scan
+      # 6️⃣ Jalankan ZAP Baseline Scan
       - name: Run ZAP Baseline Scan
-        uses: zaproxy/action-baseline@8b67c729a78d406db3128fd9622f94d33c7317e1
+        uses: zaproxy/action-baseline@b6a9e624353d0d17534337ecbc8143a2a84e1d26
         with:
           target: 'http://localhost:3000'
           fail_action: false
