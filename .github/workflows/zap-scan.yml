@@ -1,10 +1,7 @@
-name: "OWASP ZAP Scan"
+name: "OWASP ZAP Scan (Manual Run)"
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   zap_scan:
@@ -14,7 +11,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
@@ -22,27 +19,24 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # Jalankan server Next.js di background
       - name: Start Next.js dev server
         run: npm run dev &
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
           CLERK_SECRET_KEY: "test"
 
-      # Tunggu server siap
-      - name: Wait for server to be ready
+      - name: Wait for server
         run: |
-          echo "Waiting for http://localhost:3000..."
+          echo "Waiting for localhost:3000..."
           for i in {1..30}; do
             if curl -s http://localhost:3000 > /dev/null; then
-              echo "✅ Server is up!"
+              echo "✅ Server is running!"
               break
             fi
             echo "⏳ Still waiting ($i)..."
             sleep 5
           done
 
-      # Jalankan ZAP scan dengan output ke folder artifacts/
       - name: Run ZAP Baseline Scan
         run: |
           mkdir -p artifacts
@@ -55,9 +49,8 @@ jobs:
               -w zap_warnings.md \
               -a || true
 
-      # Upload hasil scan
-      - name: Upload ZAP Reports
+      - name: Upload ZAP report
         uses: actions/upload-artifact@v4
         with:
-          name: zap-scan-results
+          name: zap-scan-artifacts
           path: artifacts/
