@@ -1,84 +1,63 @@
-name: "OWASP ZAP Scan (Stable for Push & Manual)"
+name: "OWASP ZAP Scan"
 
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   zap_scan:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Clone repository manual (tanpa actions/checkout)
       - name: Checkout repository
-        run: git clone https://github.com/${{ github.repository }} ./
+        uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node.js dan environment (tanpa install docker)
-      - name: Setup environment
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y nodejs npm curl
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
-      # 3️⃣ Install dependencies project
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      # 4️⃣ Jalankan app Next.js di background
-      - name: Start app
+      # Jalankan server Next.js di background
+      - name: Start Next.js dev server
         run: npm run dev &
         env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_fakekey"
-          CLERK_SECRET_KEY: "sk_test_fakekey"
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "test"
+          CLERK_SECRET_KEY: "test"
 
-      # 5️⃣ Tunggu server benar-benar hidup
-      - name: Wait until app is reachable (robust)
+      # Tunggu server siap
+      - name: Wait for server to be ready
         run: |
-          echo "🚀 Checking if server starts..."
-          for i in {1..60}; do
-            STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" http://localhost:3000 || true)
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ App is up (HTTP 200)!"
+          echo "Waiting for http://localhost:3000..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3000 > /dev/null; then
+              echo "✅ Server is up!"
               break
-            else
-              echo "⏳ ($i) Server not ready yet (status: $STATUS)"
-              ps aux | grep "next" || true
-              sleep 5
             fi
+            echo "⏳ Still waiting ($i)..."
+            sleep 5
           done
 
-      # 6️⃣ Tambah jeda ekstra biar stabil
-      - name: Extra wait before ZAP
+      # Jalankan ZAP scan dengan output ke folder artifacts/
+      - name: Run ZAP Baseline Scan
         run: |
-          echo "🕒 Giving app extra time to stabilize..."
-          sleep 20
-
-      # 7️⃣ Jalankan OWASP ZAP scan dan simpan hasil di workspace
-      - name: Run ZAP baseline scan
-        run: |
-          echo "⚡ Running OWASP ZAP Baseline Scan..."
-          docker run --rm --network="host" \
-            -v "${{ github.workspace }}":/zap/wrk/:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
+          mkdir -p artifacts
+          docker run --network="host" \
+            -v $(pwd)/artifacts:/zap/wrk/:rw \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
               -t http://localhost:3000 \
-              -a \
-              -r /zap/wrk/zap_report.html \
-              -J /zap/wrk/zap_report.json \
-              -w /zap/wrk/zap_warnings.md || true
+              -r zap_report.html \
+              -J zap_report.json \
+              -w zap_warnings.md \
+              -a || true
 
-      # 8️⃣ Debug: tampilkan file hasil
-      - name: List generated reports
-        run: |
-          echo "📄 Files generated in workspace:"
-          ls -lah ${{ github.workspace }}
-
-      # 9️⃣ Upload hasil laporan sebagai artifact
-      - name: Upload ZAP report artifacts
+      # Upload hasil scan
+      - name: Upload ZAP Reports
         uses: actions/upload-artifact@v4
         with:
-          name: zap-report
-          path: |
-            zap_report.html
-            zap_report.json
-            zap_warnings.md
+          name: zap-scan-results
+          path: artifacts/
